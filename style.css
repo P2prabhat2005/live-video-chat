@@ -356,17 +356,23 @@ button:disabled {
     backdrop-filter: blur(10px);
 }
 
-.tap-to-play {
+.waiting-avatar {
     position: absolute;
     inset: 50% auto auto 50%;
-    z-index: 4;
     transform: translate(-50%, -50%);
-    width: max-content;
-    max-width: calc(100% - 28px);
-    border: 1px solid rgba(255, 255, 255, 0.18);
-    background: linear-gradient(180deg, #f8fbff, #cfe4ff);
-    color: #0e1726;
-    box-shadow: 0 16px 34px rgba(0, 0, 0, 0.34);
+    width: 82px;
+    height: 82px;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    background:
+        radial-gradient(circle at 30% 25%, rgba(255, 255, 255, 0.22), transparent 34%),
+        linear-gradient(135deg, #2d82df, #5fd1a5);
+    color: white;
+    font-size: 28px;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    box-shadow: 0 16px 34px rgba(0, 0, 0, 0.28);
 }
 
 .left-room-card {
