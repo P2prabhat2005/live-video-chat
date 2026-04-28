@@ -1,6 +1,6 @@
 const ROOM_CODE_LENGTH = 6;
-const MAX_CALL_RETRIES = 2;
-const CALL_RETRY_DELAY = 1800;
+const MAX_CALL_RETRIES = 1;
+const CALL_RETRY_DELAY = 2200;
 const LEFT_USER_IMAGE = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 120 120'%3E%3Crect width='120' height='120' rx='60' fill='%23f3f4f6'/%3E%3Ccircle cx='60' cy='45' r='22' fill='%239ca3af'/%3E%3Cpath d='M24 102c6-20 23-30 36-30s30 10 36 30' fill='%239ca3af'/%3E%3C/svg%3E";
 const MEDIA_CONSTRAINTS = {
     video: {
@@ -76,6 +76,7 @@ let meetingMode = null;
 let pendingJoinRoomId = null;
 let mediaRequest = null;
 let callHandlerAttached = false;
+let roomJoinCompleted = false;
 const peer = createPeerWithShortCode();
 
 initializeApp();
@@ -103,17 +104,21 @@ function initializeApp() {
         if (conn.metadata?.name) {
             setParticipantName(conn.peer, conn.metadata.name);
         }
-        appendSystemMessage(`${conn.metadata?.name || 'A participant'} joined the room.`);
+        announceParticipantJoin(conn.peer, conn.metadata?.name || 'A participant');
         setupDataConnection(conn);
     });
 
     peer.on('error', err => {
         if (err.type === 'peer-unavailable') {
-            joinInProgress = false;
-            pendingJoinRoomId = null;
-            setStatus('That room is not available right now.', 'Room not found');
-            showNotification('Room Not Found', 'Please check the 6-digit room code and try again.');
-            updateActionState();
+            if (joinInProgress && !roomJoinCompleted) {
+                joinInProgress = false;
+                pendingJoinRoomId = null;
+                setStatus('That room is not available right now.', 'Room not found');
+                showNotification('Room Not Found', 'Please check the 6-digit room code and try again.');
+                updateActionState();
+            } else {
+                appendSystemMessage('One participant could not be reached. They may need to refresh or rejoin.');
+            }
             return;
         }
 
@@ -351,6 +356,11 @@ function addVideoStream(peerId, stream, muted = false, label = 'Participant') {
         video.addEventListener('loadedmetadata', () => {
             attemptVideoPlayback(video, card);
         });
+        video.addEventListener('canplay', () => attemptVideoPlayback(video, card));
+        video.addEventListener('playing', () => {
+            removeTapToPlay(card);
+            setVideoStatus(card, '');
+        });
         video.addEventListener('click', () => attemptVideoPlayback(video, card));
         video.dataset.bound = 'true';
     }
@@ -391,6 +401,8 @@ function setupDataConnection(conn) {
             label: peers[conn.peer]?.label || conn.metadata?.name || `Peer ${conn.peer}`
         };
 
+        announceParticipantJoin(conn.peer, peers[conn.peer].label);
+
         conn.send({
             type: 'intro',
             name: localParticipantName
@@ -404,6 +416,7 @@ function setupDataConnection(conn) {
     conn.on('data', data => {
         if (data?.type === 'intro' && data.name) {
             setParticipantName(conn.peer, data.name);
+            announceParticipantJoin(conn.peer, data.name);
             if (isRoomHost()) {
                 shareExistingParticipantsWith(conn.peer);
             }
@@ -430,7 +443,9 @@ function setupDataConnection(conn) {
     });
 
     conn.on('close', () => {
-        handleParticipantLeft(conn.peer);
+        if (!peers[conn.peer]?.call && !peers[conn.peer]?.streamReceived) {
+            handleParticipantLeft(conn.peer);
+        }
         removeConnection(conn.connectionId);
         updateParticipantCount();
     });
@@ -569,6 +584,12 @@ function updateParticipantLabel(card, label) {
 }
 
 function registerPeerCall(call, label, options = {}) {
+    const existingCall = peers[call.peer]?.call;
+    if (existingCall && existingCall !== call) {
+        existingCall._liveChatReplacing = true;
+        existingCall.close();
+    }
+
     peers[call.peer] = {
         ...(peers[call.peer] || {}),
         call,
@@ -588,6 +609,10 @@ function registerPeerCall(call, label, options = {}) {
     });
 
     call.on('close', () => {
+        if (call._liveChatReplacing) {
+            return;
+        }
+
         const participant = peers[call.peer];
         if (options.retry && !participant?.hasLeft && !participant?.streamReceived) {
             retryPeerCall(call.peer, label, options.attempt || 0, 'early close');
@@ -601,6 +626,11 @@ function registerPeerCall(call, label, options = {}) {
 function startPeerCall(targetPeerId, label, attempt = 0) {
     if (!targetPeerId || targetPeerId === peer.id || !myStream) {
         return null;
+    }
+
+    const existingParticipant = peers[targetPeerId] || {};
+    if (existingParticipant.call && !existingParticipant.reconnecting) {
+        return existingParticipant.call;
     }
 
     const call = peer.call(targetPeerId, myStream, {
@@ -620,7 +650,8 @@ function attachRemoteStreamHandler(call, label) {
         peers[call.peer] = {
             ...(peers[call.peer] || {}),
             streamReceived: true,
-            reconnecting: false
+            reconnecting: false,
+            retryStopped: true
         };
 
         addVideoStream(call.peer, userVideoStream, false, peers[call.peer]?.label || label);
@@ -633,6 +664,11 @@ function markRoomJoinComplete(peerId) {
         return;
     }
 
+    if (roomJoinCompleted) {
+        return;
+    }
+
+    roomJoinCompleted = true;
     joinInProgress = false;
     pendingJoinRoomId = null;
     joinCodeInput.value = '';
@@ -685,19 +721,31 @@ function monitorPeerConnection(call, label, attempt) {
             }
 
             if (state === 'disconnected') {
-                setVideoStatus(peers[call.peer]?.card, 'Trying to restore video...');
+                const participant = peers[call.peer];
+                if (participant?.streamReceived) {
+                    setVideoStatus(participant.card, 'Connection is unstable, video may resume.');
+                    return;
+                }
+
+                setVideoStatus(participant?.card, 'Trying to restore video...');
                 setTimeout(() => {
                     const currentState = peerConnection.connectionState || peerConnection.iceConnectionState;
                     if (currentState === 'disconnected') {
-                        retryPeerCall(call.peer, label, attempt, 'network disconnected', true);
+                        retryPeerCall(call.peer, label, attempt, 'network disconnected');
                     }
                 }, 3500);
                 return;
             }
 
             if (state === 'failed') {
-                setVideoStatus(peers[call.peer]?.card, 'Reconnecting video...');
-                retryPeerCall(call.peer, label, attempt, 'network failed', true);
+                const participant = peers[call.peer];
+                if (participant?.streamReceived) {
+                    setVideoStatus(participant.card, 'Connection unstable. If video is black, tap it once or rejoin.');
+                    return;
+                }
+
+                setVideoStatus(participant?.card, 'Reconnecting video...');
+                retryPeerCall(call.peer, label, attempt, 'network failed');
             }
         };
 
@@ -707,14 +755,14 @@ function monitorPeerConnection(call, label, attempt) {
     }, 0);
 }
 
-function retryPeerCall(peerId, label, attempt, reason, force = false) {
+function retryPeerCall(peerId, label, attempt, reason) {
     const participant = peers[peerId] || {};
 
-    if (participant.hasLeft || participant.reconnecting || !myStream) {
+    if (participant.hasLeft || participant.reconnecting || participant.retryStopped || !myStream) {
         return;
     }
 
-    if (!force && participant.streamReceived) {
+    if (participant.streamReceived) {
         return;
     }
 
@@ -736,7 +784,7 @@ function retryPeerCall(peerId, label, attempt, reason, force = false) {
     };
 
     setVideoStatus(participant.card, 'Reconnecting video...');
-    appendSystemMessage(`Reconnecting video with ${label} (${reason}).`);
+    appendSystemMessage(`Trying one more video connection with ${label} (${reason}).`);
 
     setTimeout(() => {
         if (peers[peerId]?.hasLeft) {
@@ -840,6 +888,20 @@ function setVideoStatus(card, message) {
     }
 
     status.innerText = message;
+}
+
+function announceParticipantJoin(peerId, label) {
+    if (!peerId || peerId === peer.id || peers[peerId]?.joinAnnounced) {
+        return;
+    }
+
+    peers[peerId] = {
+        ...(peers[peerId] || {}),
+        joinAnnounced: true,
+        label: peers[peerId]?.label || label
+    };
+
+    appendSystemMessage(`${peers[peerId].label || 'A participant'} joined the room.`);
 }
 
 function handleParticipantLeft(peerId) {
@@ -1055,6 +1117,7 @@ function startJoinFromHome() {
     }
 
     applyParticipantName(participantName);
+    roomJoinCompleted = false;
     joinCodeInput.value = roomId;
     pendingJoinRoomId = roomId;
     enterApp('join');
