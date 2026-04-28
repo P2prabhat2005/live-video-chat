@@ -11,18 +11,42 @@
     <div class="app-shell">
         <div id="notification-container" class="notification-container"></div>
 
-        <header class="hero">
-            <div class="hero-copy">
+        <section id="home-screen" class="home-screen">
+            <div class="home-card">
                 <p class="eyebrow">Live Video Chat</p>
-                <h1>Fast room-based video chat with names, chat, and clean participant status.</h1>
-                <p class="hero-text">Start a room, share the 6-digit code, and jump into a lightweight video chat experience.</p>
+                <h1>connect and gossip</h1>
+                <div class="home-actions">
+                    <button id="home-host-btn" class="home-action-btn" type="button">Host a Meeting</button>
+                    <button id="home-join-btn" class="home-action-btn ghost-btn" type="button">Join a Meeting</button>
+                </div>
+                <div id="home-form" class="home-form app-hidden">
+                    <div class="field">
+                        <label for="home-name-input">Your Name</label>
+                        <input type="text" id="home-name-input" placeholder="Let others know your name" maxlength="20">
+                    </div>
+                    <div class="field app-hidden" id="home-room-field">
+                        <label for="home-room-code-input">Room Code</label>
+                        <input type="text" id="home-room-code-input" placeholder="Enter 6-digit room code" maxlength="6" inputmode="numeric">
+                    </div>
+                    <button id="home-start-host-btn" class="home-submit-btn app-hidden" type="button">Create Meeting</button>
+                    <button id="home-start-join-btn" class="home-submit-btn app-hidden" type="button">Join Meeting</button>
+                </div>
             </div>
-            <div class="status-card">
-                <p class="status-label">Room Status</p>
+        </section>
+
+        <div id="app-content" class="app-content app-hidden">
+        <header class="app-header">
+            <div class="app-title">
+                <p class="eyebrow">Live Video Chat</p>
+                <h1>connect and gossip</h1>
                 <p id="status-text" class="status-text">Preparing your room...</p>
-                <div class="status-meta">
-                    <span id="participant-count" class="status-pill">1 participant</span>
-                    <span id="connection-state" class="status-pill">Starting</span>
+            </div>
+            <div class="top-room-code" id="host-panel">
+                <span class="status-pill" id="participant-count">1 participant</span>
+                <span class="status-pill" id="connection-state">Starting</span>
+                <div class="code-display">
+                    <span id="room-code">Generating...</span>
+                    <button id="copy-code-btn" class="ghost-btn" type="button" disabled>Copy</button>
                 </div>
             </div>
         </header>
@@ -34,15 +58,7 @@
                     <input type="text" id="name-input" placeholder="Enter your name" maxlength="20">
                 </div>
 
-                <div class="field code-field">
-                    <label for="room-code">Your Room Code</label>
-                    <div class="code-display">
-                        <span id="room-code">Generating...</span>
-                        <button id="copy-code-btn" class="ghost-btn" type="button" disabled>Copy</button>
-                    </div>
-                </div>
-
-                <div class="field">
+                <div class="field" id="join-panel">
                     <label for="join-code">Join a Room</label>
                     <input type="text" id="join-code" placeholder="Enter 6-digit room code" maxlength="6" inputmode="numeric">
                 </div>
@@ -80,6 +96,7 @@
                 </div>
             </section>
         </main>
+        </div>
     </div>
     <script src="script.js"></script>
 </body>
